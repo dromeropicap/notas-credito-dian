@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Generador de Notas Crédito - DIAN</title>
+<style>
+  :root {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --border: #e0e6ed;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --success: #10b981;
+    --error: #ef4444;
+    --warn: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+  header {
+    margin-bottom: 24px;
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 24px;
+    font-weight: 700;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    margin: 0 0 16px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .upload-area {
+    display: block;
+    position: relative;
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #fafbfc;
+  }
+  .upload-area:hover, .upload-area.dragover {
+    border-color: var(--primary);
+    background: #eff6ff;
+  }
+  .upload-area input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .upload-icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+    color: var(--muted);
+  }
+  .file-info {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: #ecfdf5;
+    border-radius: 6px;
+    color: #065f46;
+    font-size: 14px;
+    display: none;
+  }
+  .file-info.show { display: block; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .field label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .field input, .field textarea, .field select {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fff;
+  }
+  .field input:focus, .field textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+  .field input[readonly], .field textarea[readonly] {
+    background: #f9fafb;
+    color: var(--muted);
+  }
+  .field.required label::after {
+    content: " *";
+    color: var(--error);
+  }
+  .field textarea { resize: vertical; min-height: 60px; }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .row-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+  }
+  button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-primary:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+  }
+  .btn-secondary {
+    background: #fff;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { background: #f9fafb; }
+  .hidden { display: none; }
+  .alert {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    font-size: 14px;
+  }
+  .alert-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+  }
+  .alert-success {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background: #eff6ff;
+    color: var(--primary);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+  .preview {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 16px;
+    border-radius: 6px;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 12px;
+    max-height: 400px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .section-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 768px) {
+    .section-grid { grid-template-columns: 1fr; }
+    .row, .row-3 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Generador de Notas Crédito Electrónicas <span class="badge">DIAN 2.1</span></h1>
+    <div class="subtitle">Carga el XML de la factura original y genera la NC con los campos extraídos automáticamente.</div>
+  </header>
+
+  <div id="alert" class="alert hidden"></div>
+
+  <div class="card">
+    <h2>1. Cargar XML de factura original</h2>
+    <input type="file" id="fileInput" accept=".xml,text/xml" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;">
+    <label class="upload-area" id="uploadArea" for="fileInput">
+      <div class="upload-icon">📄</div>
+      <div><strong>Haz clic o arrastra el XML aquí</strong></div>
+      <div class="subtitle">Factura electrónica de venta (formato DIAN)</div>
+    </label>
+    <div class="file-info" id="fileInfo"></div>
+  </div>
+
+  <div id="formCard" class="card hidden">
+    <h2>2. Datos extraídos de la factura</h2>
+
+    <div class="section-grid">
+      <div>
+        <h3 style="font-size:13px;color:var(--muted);margin:0 0 8px;text-transform:uppercase;">Emisor (Supplier)</h3>
+        <div class="field"><label>Razón social</label><input id="sup_name" readonly></div>
+        <div class="field" style="margin-top:8px"><label>NIT</label><input id="sup_nit" readonly></div>
+      </div>
+      <div>
+        <h3 style="font-size:13px;color:var(--muted);margin:0 0 8px;text-transform:uppercase;">Adquiriente (Customer)</h3>
+        <div class="field"><label>Nombre</label><input id="cus_name" readonly></div>
+        <div class="field" style="margin-top:8px"><label>Documento</label><input id="cus_id" readonly></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:13px;color:var(--muted);margin:16px 0 8px;text-transform:uppercase;">Factura referenciada</h3>
+    <div class="row">
+      <div class="field"><label>ID Factura</label><input id="inv_id" readonly></div>
+      <div class="field"><label>Fecha emisión</label><input id="inv_date" readonly></div>
+    </div>
+
+    <h3 style="font-size:13px;color:var(--muted);margin:16px 0 8px;text-transform:uppercase;">Resolución DIAN</h3>
+    <div class="row-3">
+      <div class="field"><label>Autorización</label><input id="res_auth" readonly></div>
+      <div class="field"><label>Vigencia</label><input id="res_period" readonly></div>
+      <div class="field"><label>Rango (Prefijo desde-hasta)</label><input id="res_range" readonly></div>
+    </div>
+
+    <h2 style="margin-top:24px;border-top:1px solid var(--border);padding-top:20px;">3. Datos de la Nota Crédito</h2>
+
+    <div class="row-3">
+      <div class="field required">
+        <label>Prefijo NC</label>
+        <input id="nc_prefix" value="NC">
+      </div>
+      <div class="field required">
+        <label>Consecutivo (solo número)</label>
+        <input id="nc_number" type="number" placeholder="ej: 15">
+      </div>
+      <div class="field required">
+        <label>Valor NC (COP, sin separadores)</label>
+        <input id="nc_amount" type="number" step="0.01" placeholder="ej: 70000.00">
+      </div>
+    </div>
+
+    <div class="field required" style="margin-bottom:12px">
+      <label>CUFE de la factura origen (96 caracteres hex)</label>
+      <input id="nc_cufe" placeholder="ej: 0614b6950c8d6e8cff5631ad08b897a321eee75f40eec971a435e425e2246ccf9fdc82f627ae3980d8ba9cf46fcef547" maxlength="200" style="font-family:Consolas,Monaco,monospace;font-size:13px;">
+    </div>
+
+    <div class="row">
+      <div class="field required">
+        <label>Fecha de emisión NC</label>
+        <input id="nc_date" type="date">
+      </div>
+      <div class="field required">
+        <label>Hora de emisión NC</label>
+        <input id="nc_time" type="time" step="1">
+      </div>
+    </div>
+
+    <div class="field required" style="margin-bottom:12px">
+      <label>Descripción del item</label>
+      <input id="nc_description" placeholder="Descripción del concepto">
+    </div>
+
+    <div class="actions">
+      <button class="btn-secondary" id="btnPreview">Vista previa XML</button>
+      <button class="btn-primary" id="btnGenerate">Generar y descargar XML</button>
+    </div>
+  </div>
+
+  <div id="previewCard" class="card hidden">
+    <h2>Vista previa del XML</h2>
+    <div class="preview" id="previewContent"></div>
+  </div>
+</div>
+
+<script>
+const NS = {
+  cbc: 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
+  cac: 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+  ext: 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2',
+  sts: 'dian:gov:co:facturaelectronica:Structures-2-1'
+};
+
+let invoiceData = null;
+
+const $ = id => document.getElementById(id);
+
+function showAlert(msg, type='error') {
+  const el = $('alert');
+  el.textContent = msg;
+  el.className = 'alert alert-' + type;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 6000);
+}
+
+function text(node, selector) {
+  if (!node) return '';
+  const el = node.querySelector(selector);
+  return el ? el.textContent.trim() : '';
+}
+
+function attr(node, selector, attrName) {
+  if (!node) return '';
+  const el = node.querySelector(selector);
+  return el ? (el.getAttribute(attrName) || '') : '';
+}
+
+// Get the outerHTML of a node, preserving as-is
+function outerXML(node) {
+  if (!node) return '';
+  return new XMLSerializer().serializeToString(node);
+}
+
+// Extract a node by local name walking children (avoids namespace issues)
+function findByLocal(parent, localName) {
+  if (!parent) return null;
+  for (const child of parent.children) {
+    if (child.localName === localName) return child;
+  }
+  return null;
+}
+
+function findAllByLocal(parent, localName) {
+  if (!parent) return [];
+  return Array.from(parent.children).filter(c => c.localName === localName);
+}
+
+function deepFindByLocal(root, localName) {
+  if (!root) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+  let n = walker.currentNode;
+  do {
+    if (n.localName === localName) return n;
+  } while (n = walker.nextNode());
+  return null;
+}
+
+function parseInvoice(xmlString) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlString, 'text/xml');
+  const parseError = doc.querySelector('parsererror');
+  if (parseError) throw new Error('XML inválido: ' + parseError.textContent);
+
+  const invoice = doc.getElementsByTagName('Invoice')[0] || doc.documentElement;
+  if (!invoice) throw new Error('No se encontró el elemento <Invoice>.');
+
+  // DIAN extensions
+  const dianExt = invoice.getElementsByTagNameNS(NS.sts, 'DianExtensions')[0]
+                 || deepFindByLocal(invoice, 'DianExtensions');
+  const invCtrl = dianExt ? deepFindByLocal(dianExt, 'InvoiceControl') : null;
+  const authPeriod = invCtrl ? deepFindByLocal(invCtrl, 'AuthorizationPeriod') : null;
+  const authInvs = invCtrl ? deepFindByLocal(invCtrl, 'AuthorizedInvoices') : null;
+
+  const data = {
+    // DIAN extension data
+    invoiceAuthorization: invCtrl ? (deepFindByLocal(invCtrl, 'InvoiceAuthorization')?.textContent.trim() || '') : '',
+    authStartDate: authPeriod ? (deepFindByLocal(authPeriod, 'StartDate')?.textContent.trim() || '') : '',
+    authEndDate: authPeriod ? (deepFindByLocal(authPeriod, 'EndDate')?.textContent.trim() || '') : '',
+    authPrefix: authInvs ? (deepFindByLocal(authInvs, 'Prefix')?.textContent.trim() || '') : '',
+    authFrom: authInvs ? (deepFindByLocal(authInvs, 'From')?.textContent.trim() || '') : '',
+    authTo: authInvs ? (deepFindByLocal(authInvs, 'To')?.textContent.trim() || '') : '',
+
+    // Invoice header
+    invoiceId: deepFindByLocal(invoice, 'ID')?.textContent.trim() || '',
+    invoiceIssueDate: '',
+    invoiceUUID: '',
+    notes: [],
+    currency: 'COP',
+
+    // Supplier (raw nodes for re-serialization)
+    supplierNode: null,
+    customerNode: null,
+
+    // Quick supplier/customer extracts for display
+    supplierName: '',
+    supplierNit: '',
+    customerName: '',
+    customerId: '',
+
+    // First item
+    firstItemDescription: 'CODI nube, suscripción',
+    firstItemStandardId: 'Servicios en la nube'
+  };
+
+  // IssueDate / UUID at invoice root (not inside extensions)
+  for (const child of invoice.children) {
+    if (child.localName === 'IssueDate' && !data.invoiceIssueDate) data.invoiceIssueDate = child.textContent.trim();
+    if (child.localName === 'UUID' && !data.invoiceUUID) data.invoiceUUID = child.textContent.trim();
+    if (child.localName === 'Note') data.notes.push(child.textContent);
+    if (child.localName === 'DocumentCurrencyCode') data.currency = child.textContent.trim() || 'COP';
+  }
+
+  // Supplier & Customer nodes
+  data.supplierNode = findByLocal(invoice, 'AccountingSupplierParty');
+  data.customerNode = findByLocal(invoice, 'AccountingCustomerParty');
+
+  if (data.supplierNode) {
+    const partyName = deepFindByLocal(data.supplierNode, 'PartyName');
+    if (partyName) data.supplierName = deepFindByLocal(partyName, 'Name')?.textContent.trim() || '';
+    const ptScheme = deepFindByLocal(data.supplierNode, 'PartyTaxScheme');
+    if (ptScheme) data.supplierNit = deepFindByLocal(ptScheme, 'CompanyID')?.textContent.trim() || '';
+  }
+  if (data.customerNode) {
+    const partyName = deepFindByLocal(data.customerNode, 'PartyName');
+    if (partyName) data.customerName = deepFindByLocal(partyName, 'Name')?.textContent.trim() || '';
+    const ptScheme = deepFindByLocal(data.customerNode, 'PartyTaxScheme');
+    if (ptScheme) data.customerId = deepFindByLocal(ptScheme, 'CompanyID')?.textContent.trim() || '';
+  }
+
+  // First invoice line item details
+  const firstLine = findByLocal(invoice, 'InvoiceLine');
+  if (firstLine) {
+    const item = findByLocal(firstLine, 'Item');
+    if (item) {
+      const desc = deepFindByLocal(item, 'Description');
+      if (desc) data.firstItemDescription = desc.textContent.trim();
+      const std = deepFindByLocal(item, 'StandardItemIdentification');
+      if (std) {
+        const stdId = deepFindByLocal(std, 'ID');
+        if (stdId) data.firstItemStandardId = stdId.textContent.trim();
+      }
+    }
+  }
+
+  return data;
+}
+
+function rebuildSupplierForNC(supplierNode) {
+  // Clone the supplier node and modify CorporateRegistrationScheme/ID to "NC"
+  const clone = supplierNode.cloneNode(true);
+  const corpScheme = deepFindByLocal(clone, 'CorporateRegistrationScheme');
+  if (corpScheme) {
+    const id = deepFindByLocal(corpScheme, 'ID');
+    if (id) id.textContent = 'NC';
+  }
+  return serializeIndented(clone, 1);
+}
+
+function rebuildCustomer(customerNode) {
+  // The NC sample has AdditionalAccountID = 1 for customer (different from invoice's 2)
+  const clone = customerNode.cloneNode(true);
+  const add = findByLocal(clone, 'AdditionalAccountID');
+  if (add) add.textContent = '1';
+  // Remove PartyIdentification block (not present in NC sample)
+  const party = findByLocal(clone, 'Party');
+  if (party) {
+    const pid = findByLocal(party, 'PartyIdentification');
+    if (pid) party.removeChild(pid);
+  }
+  // Ensure PartyTaxScheme has RegistrationAddress block (NC sample has it explicitly)
+  // For simplicity we keep whatever the invoice has.
+  return serializeIndented(clone, 1);
+}
+
+function serializeIndented(node, baseIndent) {
+  let raw = new XMLSerializer().serializeToString(node);
+  // Strip redundant xmlns declarations (root CreditNote already declares them)
+  raw = raw.replace(/\s+xmlns(?::[a-zA-Z0-9]+)?="[^"]*"/g, '');
+  return raw;
+}
+
+function formatAmount(n) {
+  const num = Number(n);
+  if (isNaN(num)) return '0.00';
+  return num.toFixed(2);
+}
+
+function escapeXml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function buildNotes(notes) {
+  if (!notes || !notes.length) return '';
+  return notes.map(n => `  <cbc:Note>${escapeXml(n)}</cbc:Note>`).join('\n');
+}
+
+const REQUIRED_FIELDS = [
+  { id: 'nc_prefix',      label: 'Prefijo NC' },
+  { id: 'nc_number',      label: 'Consecutivo (solo número)' },
+  { id: 'nc_amount',      label: 'Valor NC' },
+  { id: 'nc_cufe',        label: 'CUFE de la factura origen' },
+  { id: 'nc_date',        label: 'Fecha de emisión NC' },
+  { id: 'nc_time',        label: 'Hora de emisión NC' },
+  { id: 'nc_description', label: 'Descripción del item' }
+];
+
+function clearHighlights() {
+  REQUIRED_FIELDS.forEach(f => {
+    const el = $(f.id);
+    if (el) el.style.borderColor = '';
+  });
+}
+
+function highlightField(id) {
+  const el = $(id);
+  if (!el) return;
+  el.style.borderColor = 'var(--error)';
+  el.focus();
+}
+
+function validateRequired() {
+  clearHighlights();
+  for (const f of REQUIRED_FIELDS) {
+    const el = $(f.id);
+    const val = (el && el.value || '').trim();
+    if (!val) {
+      highlightField(f.id);
+      throw new Error(`Falta diligenciar el campo: ${f.label}`);
+    }
+  }
+  const cufe = $('nc_cufe').value.trim();
+  if (cufe.length < 40) {
+    highlightField('nc_cufe');
+    throw new Error('El CUFE parece inválido (debe tener al menos 40 caracteres hexadecimales).');
+  }
+  const amount = Number($('nc_amount').value);
+  if (!(amount > 0)) {
+    highlightField('nc_amount');
+    throw new Error('El valor de la NC debe ser mayor a 0.');
+  }
+}
+
+function buildNC() {
+  if (!invoiceData) throw new Error('Carga primero el XML de la factura.');
+
+  validateRequired();
+
+  const prefix = $('nc_prefix').value.trim();
+  const number = $('nc_number').value.trim();
+  const amountRaw = $('nc_amount').value.trim();
+  const desc = $('nc_description').value.trim();
+  const ncDate = $('nc_date').value;
+  const ncTime = $('nc_time').value;
+  const ncCufe = $('nc_cufe').value.trim();
+
+  const amount = formatAmount(amountRaw);
+  const ncFullId = prefix + number;
+  const currency = invoiceData.currency || 'COP';
+
+  // Build "From" for resolution: invoice sample has From=83 for NC range
+  // We keep the same range as the invoice's authorization (resolution is the same).
+  const fromN = invoiceData.authFrom || '1';
+  const toN = invoiceData.authTo || '100000';
+
+  // Notes — copied from invoice, but skip the trailing "0" note that appears in invoices
+  const filteredNotes = invoiceData.notes.filter(n => n.trim() !== '0');
+  const notesXml = buildNotes(filteredNotes);
+
+  // Supplier and Customer blocks (re-serialized)
+  const supplierXml = rebuildSupplierForNC(invoiceData.supplierNode);
+  const customerXml = rebuildCustomer(invoiceData.customerNode);
+
+  // Time with timezone
+  const timeWithTz = ncTime.length === 5 ? ncTime + ':00-05:00' :
+                     (ncTime.endsWith('-05:00') || ncTime.includes('+') ? ncTime : ncTime + '-05:00');
+
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+
+<Comprobantes>
+ <Comprobante>
+  <informacionOrganismo>
+
+<CreditNote xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:clm66411="urn:un:unece:uncefact:codelist:specification:66411:2001" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2" xmlns:clmIANAMIMEMediaType="urn:un:unece:uncefact:codelist:specification:IANAMIMEMediaType:2003" xmlns:qdt="urn:oasis:names:specification:ubl:schema:xsd:QualifiedDatatypes-2" xmlns:udt="urn:un:unece:uncefact:data:specification:UnqualifiedDataTypesSchemaModule:2" xmlns:sts="dian:gov:co:facturaelectronica:Structures-2-1" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:ccts="urn:un:unece:uncefact:documentation:2" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:clm54217="urn:un:unece:uncefact:codelist:specification:54217:2001" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns="urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2">
+  <ext:UBLExtensions>
+    <ext:UBLExtension>
+      <ext:ExtensionContent>
+        <sts:DianExtensions>
+          <sts:InvoiceControl>
+            <sts:InvoiceAuthorization>${escapeXml(invoiceData.invoiceAuthorization)}</sts:InvoiceAuthorization>
+            <sts:AuthorizationPeriod>
+              <cbc:StartDate>${escapeXml(invoiceData.authStartDate)}</cbc:StartDate>
+              <cbc:EndDate>${escapeXml(invoiceData.authEndDate)}</cbc:EndDate>
+            </sts:AuthorizationPeriod>
+            <sts:AuthorizedInvoices>
+              <sts:Prefix>${escapeXml(prefix)}</sts:Prefix>
+              <sts:From>${escapeXml(fromN)}</sts:From>
+              <sts:To>${escapeXml(toN)}</sts:To>
+            </sts:AuthorizedInvoices>
+          </sts:InvoiceControl>
+          <sts:InvoiceSource>
+            <cbc:IdentificationCode listAgencyID="6" listAgencyName="United Nations Economic Commission for Europe" listSchemeURI="urn:oasis:names:specification:ubl:codelist:gc:CountryIdentificationCode-2.1">CO</cbc:IdentificationCode>
+          </sts:InvoiceSource>
+          <sts:SoftwareProvider>
+             <sts:SoftwareID schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)" />
+          </sts:SoftwareProvider>
+          <sts:SoftwareSecurityCode schemeAgencyID="195" schemeAgencyName="CO, DIAN (Dirección de Impuestos y Aduanas Nacionales)" />
+        </sts:DianExtensions>
+      </ext:ExtensionContent>
+    </ext:UBLExtension>
+    </ext:UBLExtensions>
+  <cbc:CustomizationID>20</cbc:CustomizationID>
+  <cbc:ProfileID>DIAN 2.1: Nota Crédito de Factura Electrónica de Venta</cbc:ProfileID>
+  <cbc:ProfileExecutionID>1</cbc:ProfileExecutionID>
+  <cbc:ID>${escapeXml(ncFullId)}</cbc:ID>
+<cbc:UUID schemeID="1" schemeName="CUFE-SHA384" />
+<cbc:IssueDate>${escapeXml(ncDate)}</cbc:IssueDate>
+  <cbc:IssueTime>${escapeXml(timeWithTz)}</cbc:IssueTime>
+<cbc:CreditNoteTypeCode>91</cbc:CreditNoteTypeCode>
+${notesXml}
+  <cbc:DocumentCurrencyCode>${escapeXml(currency)}</cbc:DocumentCurrencyCode>
+  <cbc:LineCountNumeric>1</cbc:LineCountNumeric>
+<cac:BillingReference>
+<cac:InvoiceDocumentReference>
+<cbc:ID>${escapeXml(invoiceData.invoiceId)}</cbc:ID>
+<cbc:UUID schemeID="2" schemeName="CUFE-SHA384">${escapeXml(ncCufe)}</cbc:UUID>
+<cbc:IssueDate>${escapeXml(invoiceData.invoiceIssueDate)}</cbc:IssueDate>
+</cac:InvoiceDocumentReference>
+</cac:BillingReference>
+${supplierXml}
+${customerXml}
+ <cac:PaymentMeans>
+          <cbc:ID>1</cbc:ID>
+          <cbc:PaymentMeansCode>ZZZ</cbc:PaymentMeansCode>
+        </cac:PaymentMeans>
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="${currency}">0.00</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="${currency}">${amount}</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="${currency}">0.00</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:Percent>0.00</cbc:Percent>
+        <cac:TaxScheme>
+          <cbc:ID>01</cbc:ID>
+          <cbc:Name>IVA</cbc:Name>
+        </cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="${currency}">${amount}</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="${currency}">${amount}</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="${currency}">${amount}</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="${currency}">${amount}</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+<cac:CreditNoteLine>
+    <cbc:ID>1</cbc:ID>
+<cbc:CreditedQuantity unitCode="NIU">1</cbc:CreditedQuantity>
+    <cbc:LineExtensionAmount currencyID="${currency}">${amount}</cbc:LineExtensionAmount>
+    <cac:TaxTotal>
+      <cbc:TaxAmount currencyID="${currency}">0.00</cbc:TaxAmount>
+      <cac:TaxSubtotal>
+        <cbc:TaxableAmount currencyID="${currency}">${amount}</cbc:TaxableAmount>
+        <cbc:TaxAmount currencyID="${currency}">0.00</cbc:TaxAmount>
+        <cac:TaxCategory>
+          <cbc:Percent>0.00</cbc:Percent>
+          <cac:TaxScheme>
+            <cbc:ID>01</cbc:ID>
+           <cbc:Name>IVA</cbc:Name>
+          </cac:TaxScheme>
+        </cac:TaxCategory>
+      </cac:TaxSubtotal>
+    </cac:TaxTotal>
+    <cac:Item>
+      <cbc:Description>${escapeXml(desc)}</cbc:Description>
+      <cac:StandardItemIdentification>
+        <cbc:ID schemeID="999" schemeName="StandardItemIdentificationId">${escapeXml(invoiceData.firstItemStandardId)}</cbc:ID>
+      </cac:StandardItemIdentification>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="${currency}">${amount}</cbc:PriceAmount>
+      <cbc:BaseQuantity unitCode="NIU">1</cbc:BaseQuantity>
+    </cac:Price>
+</cac:CreditNoteLine>
+</CreditNote>
+
+  </informacionOrganismo>
+  <informacionComfiar>
+           <ruc>${escapeXml(invoiceData.supplierNit)}</ruc>
+           <codDoc>04</codDoc>
+           <prefixPtoVenta>${escapeXml(prefix)}</prefixPtoVenta>
+           <nroCbte>${escapeXml(number)}</nroCbte>
+          <Receptores>
+                <Receptor>
+                        <Login>${escapeXml(extractCustomerEmail())}</Login>
+                        <TipoUsuario>2</TipoUsuario>
+                        <Nombre>${escapeXml(invoiceData.customerName)}</Nombre>
+                        <Mail>${escapeXml(extractCustomerEmail())}</Mail>
+                        <Contacto>${escapeXml(extractCustomerPhone())}</Contacto>
+                        <Idioma>05</Idioma>
+                        <Adjunto>ADJUNTO</Adjunto>
+                </Receptor>
+          </Receptores>
+  </informacionComfiar>
+</Comprobante>
+ </Comprobantes>
+`;
+
+  return { xml, ncFullId };
+}
+
+function extractCustomerEmail() {
+  const contact = deepFindByLocal(invoiceData.customerNode, 'Contact');
+  if (!contact) return '';
+  const mail = deepFindByLocal(contact, 'ElectronicMail');
+  return mail ? mail.textContent.trim() : '';
+}
+
+function extractCustomerPhone() {
+  const contact = deepFindByLocal(invoiceData.customerNode, 'Contact');
+  if (!contact) return '';
+  const tel = deepFindByLocal(contact, 'Telephone');
+  return tel ? tel.textContent.trim() : '';
+}
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      invoiceData = parseInvoice(e.target.result);
+      fillForm();
+      $('formCard').classList.remove('hidden');
+      $('fileInfo').textContent = `✓ Cargado: ${file.name} — Factura ${invoiceData.invoiceId}`;
+      $('fileInfo').classList.add('show');
+      showAlert('Factura cargada correctamente.', 'success');
+    } catch (err) {
+      showAlert('Error al procesar el XML: ' + err.message);
+      console.error(err);
+    }
+  };
+  reader.onerror = () => showAlert('No se pudo leer el archivo.');
+  reader.readAsText(file, 'UTF-8');
+}
+
+function fillForm() {
+  $('sup_name').value = invoiceData.supplierName;
+  $('sup_nit').value = invoiceData.supplierNit;
+  $('cus_name').value = invoiceData.customerName;
+  $('cus_id').value = invoiceData.customerId;
+  $('inv_id').value = invoiceData.invoiceId;
+  $('inv_date').value = invoiceData.invoiceIssueDate;
+  $('res_auth').value = invoiceData.invoiceAuthorization;
+  $('res_period').value = `${invoiceData.authStartDate} → ${invoiceData.authEndDate}`;
+  $('res_range').value = `${invoiceData.authPrefix} ${invoiceData.authFrom}-${invoiceData.authTo}`;
+
+  $('nc_description').value = invoiceData.firstItemDescription;
+  // Pre-fill CUFE from invoice if it was set (usually it's empty in origin XML)
+  $('nc_cufe').value = invoiceData.invoiceUUID || '';
+
+  // Default date/time = now
+  const now = new Date();
+  $('nc_date').value = now.toISOString().slice(0, 10);
+  $('nc_time').value = now.toTimeString().slice(0, 8);
+}
+
+function downloadXml(xml, filename) {
+  const blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Event wiring
+$('fileInput').addEventListener('change', e => {
+  if (e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+const uploadArea = $('uploadArea');
+['dragenter', 'dragover'].forEach(ev => {
+  uploadArea.addEventListener(ev, e => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+  });
+});
+['dragleave', 'drop'].forEach(ev => {
+  uploadArea.addEventListener(ev, e => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+  });
+});
+uploadArea.addEventListener('drop', e => {
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+
+$('btnPreview').addEventListener('click', () => {
+  try {
+    const { xml } = buildNC();
+    $('previewContent').textContent = xml;
+    $('previewCard').classList.remove('hidden');
+    $('previewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    showAlert(err.message);
+  }
+});
+
+$('btnGenerate').addEventListener('click', () => {
+  try {
+    const { xml, ncFullId } = buildNC();
+    const date = ($('nc_date').value || '').replace(/-/g, '');
+    const filename = `${ncFullId}_DNC_${date}_${date}.xml`;
+    downloadXml(xml, filename);
+    showAlert(`XML generado y descargado: ${filename}`, 'success');
+  } catch (err) {
+    showAlert(err.message);
+  }
+});
+</script>
+</body>
+</html>
