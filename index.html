@@ -476,6 +476,25 @@ function parseInvoice(xmlString) {
     }
   }
 
+  // Totals and taxes (invoice level)
+  const num = n => { const v = parseFloat((n?.textContent || '').trim()); return isNaN(v) ? 0 : v; };
+  const readSubtotals = totalNode => findAllByLocal(totalNode, 'TaxSubtotal').map(st => {
+    const cat = findByLocal(st, 'TaxCategory');
+    const sch = cat ? findByLocal(cat, 'TaxScheme') : null;
+    return {
+      taxable: num(findByLocal(st, 'TaxableAmount')),
+      amount: num(findByLocal(st, 'TaxAmount')),
+      percent: cat ? (findByLocal(cat, 'Percent')?.textContent.trim() || '0.00') : '0.00',
+      schemeId: sch ? (findByLocal(sch, 'ID')?.textContent.trim() || '') : '',
+      schemeName: sch ? (findByLocal(sch, 'Name')?.textContent.trim() || '') : ''
+    };
+  });
+  data.taxes = findAllByLocal(invoice, 'TaxTotal').flatMap(readSubtotals);
+  data.withholdings = findAllByLocal(invoice, 'WithholdingTaxTotal').flatMap(readSubtotals);
+  const lmt = findByLocal(invoice, 'LegalMonetaryTotal');
+  data.lineExtension = lmt ? num(findByLocal(lmt, 'LineExtensionAmount')) : 0;
+  if (!data.lineExtension && firstLine) data.lineExtension = num(findByLocal(firstLine, 'LineExtensionAmount'));
+
   return data;
 }
 
@@ -597,13 +616,45 @@ function buildNC() {
   const ncFullId = prefix + number;
   const currency = invoiceData.currency || 'COP';
 
+  // Taxes: reverse the invoice's IVA / withholdings. Exact invoice values when the NC is
+  // for the full base, proportional (rounded to cents) otherwise.
+  const amountNum = Number(amount);
+  const full = Math.abs(amountNum - invoiceData.lineExtension) < 0.005;
+  const calcTax = st => ({ ...st, taxable: amountNum,
+    amount: full ? st.amount : Math.round(amountNum * parseFloat(st.percent) ) / 100 });
+  let ivaList = (invoiceData.taxes || []).filter(t => t.schemeId === '01').map(calcTax);
+  if (!ivaList.length) ivaList = [{ taxable: amountNum, amount: 0, percent: '0.00', schemeId: '01', schemeName: 'IVA' }];
+  const whList = (invoiceData.withholdings || []).map(calcTax);
+  const ivaTotal = ivaList.reduce((a, t) => a + t.amount, 0);
+  const inclusive = formatAmount(amountNum + ivaTotal);
+  const subtotalsXml = (list, ind) => list.map(t => `${ind}<cac:TaxSubtotal>
+${ind}  <cbc:TaxableAmount currencyID="${currency}">${formatAmount(t.taxable)}</cbc:TaxableAmount>
+${ind}  <cbc:TaxAmount currencyID="${currency}">${formatAmount(t.amount)}</cbc:TaxAmount>
+${ind}  <cac:TaxCategory>
+${ind}    <cbc:Percent>${escapeXml(t.percent)}</cbc:Percent>
+${ind}    <cac:TaxScheme>
+${ind}      <cbc:ID>${escapeXml(t.schemeId)}</cbc:ID>
+${ind}      <cbc:Name>${escapeXml(t.schemeName)}</cbc:Name>
+${ind}    </cac:TaxScheme>
+${ind}  </cac:TaxCategory>
+${ind}</cac:TaxSubtotal>`).join('\n');
+  const whXml = whList.length ? `  <cac:WithholdingTaxTotal>
+    <cbc:TaxAmount currencyID="${currency}">${formatAmount(whList.reduce((a, t) => a + t.amount, 0))}</cbc:TaxAmount>
+${subtotalsXml(whList, '    ')}
+  </cac:WithholdingTaxTotal>
+` : '';
+
   // Build "From" for resolution: invoice sample has From=83 for NC range
   // We keep the same range as the invoice's authorization (resolution is the same).
   const fromN = invoiceData.authFrom || '1';
   const toN = invoiceData.authTo || '100000';
 
   // Notes — copied from invoice, but skip the trailing "0" note that appears in invoices
-  const filteredNotes = invoiceData.notes.filter(n => n.trim() !== '0');
+  // also skip numeric-only notes and payment/letra de cambio boilerplate that don't apply to a NC
+  const filteredNotes = invoiceData.notes.filter(n => {
+    const t = n.trim();
+    return t !== '0' && !/^[\d.,]+$/.test(t) && !/letra de cambio|portal de pagos/i.test(t);
+  });
   const notesXml = buildNotes(filteredNotes);
 
   // Supplier and Customer blocks (re-serialized)
@@ -673,42 +724,22 @@ ${customerXml}
           <cbc:PaymentMeansCode>ZZZ</cbc:PaymentMeansCode>
         </cac:PaymentMeans>
   <cac:TaxTotal>
-    <cbc:TaxAmount currencyID="${currency}">0.00</cbc:TaxAmount>
-    <cac:TaxSubtotal>
-      <cbc:TaxableAmount currencyID="${currency}">${amount}</cbc:TaxableAmount>
-      <cbc:TaxAmount currencyID="${currency}">0.00</cbc:TaxAmount>
-      <cac:TaxCategory>
-        <cbc:Percent>0.00</cbc:Percent>
-        <cac:TaxScheme>
-          <cbc:ID>01</cbc:ID>
-          <cbc:Name>IVA</cbc:Name>
-        </cac:TaxScheme>
-      </cac:TaxCategory>
-    </cac:TaxSubtotal>
+    <cbc:TaxAmount currencyID="${currency}">${formatAmount(ivaTotal)}</cbc:TaxAmount>
+${subtotalsXml(ivaList, '    ')}
   </cac:TaxTotal>
-  <cac:LegalMonetaryTotal>
+${whXml}  <cac:LegalMonetaryTotal>
     <cbc:LineExtensionAmount currencyID="${currency}">${amount}</cbc:LineExtensionAmount>
     <cbc:TaxExclusiveAmount currencyID="${currency}">${amount}</cbc:TaxExclusiveAmount>
-    <cbc:TaxInclusiveAmount currencyID="${currency}">${amount}</cbc:TaxInclusiveAmount>
-    <cbc:PayableAmount currencyID="${currency}">${amount}</cbc:PayableAmount>
+    <cbc:TaxInclusiveAmount currencyID="${currency}">${inclusive}</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="${currency}">${inclusive}</cbc:PayableAmount>
   </cac:LegalMonetaryTotal>
 <cac:CreditNoteLine>
     <cbc:ID>1</cbc:ID>
 <cbc:CreditedQuantity unitCode="NIU">1</cbc:CreditedQuantity>
     <cbc:LineExtensionAmount currencyID="${currency}">${amount}</cbc:LineExtensionAmount>
     <cac:TaxTotal>
-      <cbc:TaxAmount currencyID="${currency}">0.00</cbc:TaxAmount>
-      <cac:TaxSubtotal>
-        <cbc:TaxableAmount currencyID="${currency}">${amount}</cbc:TaxableAmount>
-        <cbc:TaxAmount currencyID="${currency}">0.00</cbc:TaxAmount>
-        <cac:TaxCategory>
-          <cbc:Percent>0.00</cbc:Percent>
-          <cac:TaxScheme>
-            <cbc:ID>01</cbc:ID>
-           <cbc:Name>IVA</cbc:Name>
-          </cac:TaxScheme>
-        </cac:TaxCategory>
-      </cac:TaxSubtotal>
+      <cbc:TaxAmount currencyID="${currency}">${formatAmount(ivaTotal)}</cbc:TaxAmount>
+${subtotalsXml(ivaList, '      ')}
     </cac:TaxTotal>
     <cac:Item>
       <cbc:Description>${escapeXml(desc)}</cbc:Description>
@@ -793,6 +824,7 @@ function fillForm() {
   $('res_range').value = `${invoiceData.authPrefix} ${invoiceData.authFrom}-${invoiceData.authTo}`;
 
   $('nc_description').value = invoiceData.firstItemDescription;
+  $('nc_amount').value = invoiceData.lineExtension ? invoiceData.lineExtension.toFixed(2) : '';
   // Pre-fill CUFE from invoice if it was set (usually it's empty in origin XML)
   $('nc_cufe').value = invoiceData.invoiceUUID || '';
 
