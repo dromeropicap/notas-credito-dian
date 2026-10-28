@@ -395,7 +395,18 @@ function parseInvoice(xmlString) {
   const parseError = doc.querySelector('parsererror');
   if (parseError) throw new Error('XML inválido: ' + parseError.textContent);
 
-  const invoice = doc.getElementsByTagName('Invoice')[0] || doc.documentElement;
+  let invoice = doc.getElementsByTagName('Invoice')[0];
+  if (!invoice) {
+    // DIAN "AttachedDocument": the signed Invoice (with CUFE) travels as CDATA text inside a cbc:Description
+    for (const d of doc.getElementsByTagNameNS('*', 'Description')) {
+      if (!/<(\w+:)?Invoice[\s>]/.test(d.textContent)) continue;
+      const inner = parser.parseFromString(d.textContent.trim(), 'text/xml');
+      if (inner.querySelector('parsererror')) continue;
+      invoice = inner.getElementsByTagName('Invoice')[0];
+      if (invoice) break;
+    }
+  }
+  invoice = invoice || doc.documentElement;
   if (!invoice) throw new Error('No se encontró el elemento <Invoice>.');
 
   // DIAN extensions
@@ -415,7 +426,7 @@ function parseInvoice(xmlString) {
     authTo: authInvs ? (deepFindByLocal(authInvs, 'To')?.textContent.trim() || '') : '',
 
     // Invoice header
-    invoiceId: deepFindByLocal(invoice, 'ID')?.textContent.trim() || '',
+    invoiceId: findByLocal(invoice, 'ID')?.textContent.trim() || '',
     invoiceIssueDate: '',
     invoiceUUID: '',
     notes: [],
