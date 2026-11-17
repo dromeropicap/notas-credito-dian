@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Generador de Notas Crédito - DIAN</title>
+<title>Generador de Notas Crédito y Débito - DIAN</title>
 <style>
   :root {
     --bg: #f5f7fa;
@@ -222,6 +222,8 @@
     white-space: pre-wrap;
     word-break: break-all;
   }
+  .doc-type { display: flex; gap: 24px; flex-wrap: wrap; font-size: 14px; }
+  .doc-type label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; }
   .section-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -236,11 +238,19 @@
 <body>
 <div class="container">
   <header>
-    <h1>Generador de Notas Crédito Electrónicas <span class="badge">DIAN 2.1</span></h1>
-    <div class="subtitle">Carga el XML de la factura original y genera la NC con los campos extraídos automáticamente.</div>
+    <h1>Generador de Notas Crédito y Débito Electrónicas <span class="badge">DIAN 2.1</span></h1>
+    <div class="subtitle">Carga el XML de la factura original y genera la NC o ND con los campos extraídos automáticamente.</div>
   </header>
 
   <div id="alert" class="alert hidden"></div>
+
+  <div class="card">
+    <h2>Tipo de documento a emitir</h2>
+    <div class="doc-type">
+      <label><input type="radio" name="docType" value="NC" checked> Nota Crédito <span class="subtitle">(disminuye el valor de la factura)</span></label>
+      <label><input type="radio" name="docType" value="ND"> Nota Débito <span class="subtitle">(aumenta el valor de la factura)</span></label>
+    </div>
+  </div>
 
   <div class="card">
     <h2>1. Cargar XML de factura original</h2>
@@ -282,11 +292,11 @@
       <div class="field"><label>Rango (Prefijo desde-hasta)</label><input id="res_range" readonly></div>
     </div>
 
-    <h2 style="margin-top:24px;border-top:1px solid var(--border);padding-top:20px;">3. Datos de la Nota Crédito</h2>
+    <h2 style="margin-top:24px;border-top:1px solid var(--border);padding-top:20px;">3. Datos de la <span class="doc-name">Nota Crédito</span></h2>
 
     <div class="row-3">
       <div class="field required">
-        <label>Prefijo NC</label>
+        <label>Prefijo <span class="doc-abbr">NC</span></label>
         <input id="nc_prefix" value="NC">
       </div>
       <div class="field required">
@@ -294,7 +304,7 @@
         <input id="nc_number" type="number" placeholder="ej: 15">
       </div>
       <div class="field required">
-        <label>Valor NC — subtotal sin IVA (COP, sin separadores)</label>
+        <label>Valor <span class="doc-abbr">NC</span> — subtotal sin IVA (COP, sin separadores)</label>
         <input id="nc_amount" type="number" step="0.01" placeholder="ej: 70000.00">
       </div>
     </div>
@@ -308,11 +318,11 @@
 
     <div class="row">
       <div class="field required">
-        <label>Fecha de emisión NC</label>
+        <label>Fecha de emisión <span class="doc-abbr">NC</span></label>
         <input id="nc_date" type="date">
       </div>
       <div class="field required">
-        <label>Hora de emisión NC</label>
+        <label>Hora de emisión <span class="doc-abbr">NC</span></label>
         <input id="nc_time" type="time" step="1">
       </div>
     </div>
@@ -343,6 +353,32 @@ const NS = {
 };
 
 let invoiceData = null;
+
+// Per-document-type differences (taken from real Comfiar NC / ND samples)
+const DOC_TYPES = {
+  NC: {
+    abbr: 'NC', name: 'Nota Crédito', root: 'CreditNote', customizationId: '20',
+    profileId: 'DIAN 2.1: Nota Crédito de Factura Electrónica de Venta',
+    typeCodeTag: 'CreditNoteTypeCode', typeCode: '91',
+    totalTag: 'LegalMonetaryTotal', lineTag: 'CreditNoteLine', qtyTag: 'CreditedQuantity',
+    codDoc: '04', fileTag: 'DNC', keepPaymentNotes: false,
+    paymentMeansCode: () => 'ZZZ'
+  },
+  ND: {
+    abbr: 'ND', name: 'Nota Débito', root: 'DebitNote', customizationId: '30',
+    profileId: 'DIAN 2.1: Nota Debito de Factura Electrónica de Venta',
+    typeCodeTag: 'DebitNoteTypeCode', typeCode: '92',
+    totalTag: 'RequestedMonetaryTotal', lineTag: 'DebitNoteLine', qtyTag: 'DebitedQuantity',
+    codDoc: '05', fileTag: 'DND', keepPaymentNotes: true,
+    // An ND is a new charge: keep the invoice's payment means, default 42 (consignación bancaria)
+    paymentMeansCode: d => (d.paymentMeansCode && d.paymentMeansCode !== 'ZZZ') ? d.paymentMeansCode : '42'
+  }
+};
+
+function currentDocType() {
+  const sel = document.querySelector('input[name="docType"]:checked');
+  return DOC_TYPES[sel ? sel.value : 'NC'];
+}
 
 const $ = id => document.getElementById(id);
 
@@ -462,6 +498,9 @@ function parseInvoice(xmlString) {
     if (child.localName === 'DocumentCurrencyCode') data.currency = child.textContent.trim() || 'COP';
   }
 
+  const pm = findByLocal(invoice, 'PaymentMeans');
+  data.paymentMeansCode = pm ? (findByLocal(pm, 'PaymentMeansCode')?.textContent.trim() || '') : '';
+
   // Supplier & Customer nodes
   data.supplierNode = findByLocal(invoice, 'AccountingSupplierParty');
   data.customerNode = findByLocal(invoice, 'AccountingCustomerParty');
@@ -516,13 +555,13 @@ function parseInvoice(xmlString) {
   return data;
 }
 
-function rebuildSupplierForNC(supplierNode) {
-  // Clone the supplier node and modify CorporateRegistrationScheme/ID to "NC"
+function rebuildSupplier(supplierNode, abbr) {
+  // Clone the supplier node and set CorporateRegistrationScheme/ID to "NC" / "ND"
   const clone = supplierNode.cloneNode(true);
   const corpScheme = deepFindByLocal(clone, 'CorporateRegistrationScheme');
   if (corpScheme) {
     const id = deepFindByLocal(corpScheme, 'ID');
-    if (id) id.textContent = 'NC';
+    if (id) id.textContent = abbr;
   }
   return serializeIndented(clone, 1);
 }
@@ -572,12 +611,12 @@ function buildNotes(notes) {
 }
 
 const REQUIRED_FIELDS = [
-  { id: 'nc_prefix',      label: 'Prefijo NC' },
+  { id: 'nc_prefix',      label: 'Prefijo' },
   { id: 'nc_number',      label: 'Consecutivo (solo número)' },
-  { id: 'nc_amount',      label: 'Valor NC' },
+  { id: 'nc_amount',      label: 'Valor' },
   { id: 'nc_cufe',        label: 'CUFE de la factura origen' },
-  { id: 'nc_date',        label: 'Fecha de emisión NC' },
-  { id: 'nc_time',        label: 'Hora de emisión NC' },
+  { id: 'nc_date',        label: 'Fecha de emisión' },
+  { id: 'nc_time',        label: 'Hora de emisión' },
   { id: 'nc_description', label: 'Descripción del item' }
 ];
 
@@ -613,11 +652,11 @@ function validateRequired() {
   const amount = Number($('nc_amount').value);
   if (!(amount > 0)) {
     highlightField('nc_amount');
-    throw new Error('El valor de la NC debe ser mayor a 0.');
+    throw new Error(`El valor de la ${currentDocType().abbr} debe ser mayor a 0.`);
   }
 }
 
-// Taxes: reverse the invoice's IVA / withholdings. Exact invoice values when the NC is
+// Taxes: replicate the invoice's IVA / withholdings (reversed by an NC, added by an ND). Exact invoice values when the NC is
 // for the full base, proportional (rounded to cents) otherwise.
 function computeTaxes(amountNum) {
   const full = Math.abs(amountNum - invoiceData.lineExtension) < 0.005;
@@ -637,10 +676,11 @@ function updateSummary() {
   const { ivaList, whList, inclusive } = computeTaxes(amountNum);
   const fmt = n => n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const row = (label, val, cls='') => `<div class="sum-row ${cls}"><span>${label}</span><span>${fmt(val)}</span></div>`;
-  box.innerHTML = '<div class="sum-title">Resumen de la NC (así saldrá en el XML)</div>'
+  const abbr = currentDocType().abbr;
+  box.innerHTML = `<div class="sum-title">Resumen de la ${abbr} (así saldrá en el XML)</div>`
     + row('Subtotal (base)', amountNum)
     + ivaList.map(t => row(`${escapeXml(t.schemeName)} ${escapeXml(t.percent)}%`, t.amount)).join('')
-    + row('Total NC (con IVA)', inclusive, 'sum-total')
+    + row(`Total ${abbr} (con IVA)`, inclusive, 'sum-total')
     + whList.map(t => row(`Retención informativa: ${escapeXml(t.schemeName)} ${escapeXml(t.percent)}%`, t.amount, 'sum-note')).join('');
   box.classList.remove('hidden');
 }
@@ -649,6 +689,7 @@ function buildNC() {
   if (!invoiceData) throw new Error('Carga primero el XML de la factura.');
 
   validateRequired();
+  const dt = currentDocType();
 
   const prefix = $('nc_prefix').value.trim();
   const number = $('nc_number').value.trim();
@@ -691,12 +732,13 @@ ${subtotalsXml(whList, '    ')}
   // also skip numeric-only notes and payment/letra de cambio boilerplate that don't apply to a NC
   const filteredNotes = invoiceData.notes.filter(n => {
     const t = n.trim();
-    return t !== '0' && !/^[\d.,]+$/.test(t) && !/letra de cambio|portal de pagos/i.test(t);
+    // An ND is a new charge, so it keeps the payment notes (as in the real ND sample)
+    return t !== '0' && !/^[\d.,]+$/.test(t) && (dt.keepPaymentNotes || !/letra de cambio|portal de pagos/i.test(t));
   });
   const notesXml = buildNotes(filteredNotes);
 
   // Supplier and Customer blocks (re-serialized)
-  const supplierXml = rebuildSupplierForNC(invoiceData.supplierNode);
+  const supplierXml = rebuildSupplier(invoiceData.supplierNode, dt.abbr);
   const customerXml = rebuildCustomer(invoiceData.customerNode);
 
   // Time with timezone
@@ -709,7 +751,7 @@ ${subtotalsXml(whList, '    ')}
  <Comprobante>
   <informacionOrganismo>
 
-<CreditNote xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:clm66411="urn:un:unece:uncefact:codelist:specification:66411:2001" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2" xmlns:clmIANAMIMEMediaType="urn:un:unece:uncefact:codelist:specification:IANAMIMEMediaType:2003" xmlns:qdt="urn:oasis:names:specification:ubl:schema:xsd:QualifiedDatatypes-2" xmlns:udt="urn:un:unece:uncefact:data:specification:UnqualifiedDataTypesSchemaModule:2" xmlns:sts="dian:gov:co:facturaelectronica:Structures-2-1" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:ccts="urn:un:unece:uncefact:documentation:2" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:clm54217="urn:un:unece:uncefact:codelist:specification:54217:2001" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns="urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2">
+<${dt.root} xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:clm66411="urn:un:unece:uncefact:codelist:specification:66411:2001" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2" xmlns:clmIANAMIMEMediaType="urn:un:unece:uncefact:codelist:specification:IANAMIMEMediaType:2003" xmlns:qdt="urn:oasis:names:specification:ubl:schema:xsd:QualifiedDatatypes-2" xmlns:udt="urn:un:unece:uncefact:data:specification:UnqualifiedDataTypesSchemaModule:2" xmlns:sts="dian:gov:co:facturaelectronica:Structures-2-1" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:ccts="urn:un:unece:uncefact:documentation:2" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:clm54217="urn:un:unece:uncefact:codelist:specification:54217:2001" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns="urn:oasis:names:specification:ubl:schema:xsd:${dt.root}-2">
   <ext:UBLExtensions>
     <ext:UBLExtension>
       <ext:ExtensionContent>
@@ -737,14 +779,14 @@ ${subtotalsXml(whList, '    ')}
       </ext:ExtensionContent>
     </ext:UBLExtension>
     </ext:UBLExtensions>
-  <cbc:CustomizationID>20</cbc:CustomizationID>
-  <cbc:ProfileID>DIAN 2.1: Nota Crédito de Factura Electrónica de Venta</cbc:ProfileID>
+  <cbc:CustomizationID>${dt.customizationId}</cbc:CustomizationID>
+  <cbc:ProfileID>${escapeXml(dt.profileId)}</cbc:ProfileID>
   <cbc:ProfileExecutionID>1</cbc:ProfileExecutionID>
   <cbc:ID>${escapeXml(ncFullId)}</cbc:ID>
 <cbc:UUID schemeID="1" schemeName="CUFE-SHA384" />
 <cbc:IssueDate>${escapeXml(ncDate)}</cbc:IssueDate>
   <cbc:IssueTime>${escapeXml(timeWithTz)}</cbc:IssueTime>
-<cbc:CreditNoteTypeCode>91</cbc:CreditNoteTypeCode>
+<cbc:${dt.typeCodeTag}>${dt.typeCode}</cbc:${dt.typeCodeTag}>
 ${notesXml}
   <cbc:DocumentCurrencyCode>${escapeXml(currency)}</cbc:DocumentCurrencyCode>
   <cbc:LineCountNumeric>1</cbc:LineCountNumeric>
@@ -759,21 +801,21 @@ ${supplierXml}
 ${customerXml}
  <cac:PaymentMeans>
           <cbc:ID>1</cbc:ID>
-          <cbc:PaymentMeansCode>ZZZ</cbc:PaymentMeansCode>
+          <cbc:PaymentMeansCode>${escapeXml(dt.paymentMeansCode(invoiceData))}</cbc:PaymentMeansCode>
         </cac:PaymentMeans>
   <cac:TaxTotal>
     <cbc:TaxAmount currencyID="${currency}">${formatAmount(ivaTotal)}</cbc:TaxAmount>
 ${subtotalsXml(ivaList, '    ')}
   </cac:TaxTotal>
-${whXml}  <cac:LegalMonetaryTotal>
+${whXml}  <cac:${dt.totalTag}>
     <cbc:LineExtensionAmount currencyID="${currency}">${amount}</cbc:LineExtensionAmount>
     <cbc:TaxExclusiveAmount currencyID="${currency}">${amount}</cbc:TaxExclusiveAmount>
     <cbc:TaxInclusiveAmount currencyID="${currency}">${inclusive}</cbc:TaxInclusiveAmount>
     <cbc:PayableAmount currencyID="${currency}">${inclusive}</cbc:PayableAmount>
-  </cac:LegalMonetaryTotal>
-<cac:CreditNoteLine>
+  </cac:${dt.totalTag}>
+<cac:${dt.lineTag}>
     <cbc:ID>1</cbc:ID>
-<cbc:CreditedQuantity unitCode="NIU">1</cbc:CreditedQuantity>
+<cbc:${dt.qtyTag} unitCode="NIU">1</cbc:${dt.qtyTag}>
     <cbc:LineExtensionAmount currencyID="${currency}">${amount}</cbc:LineExtensionAmount>
     <cac:TaxTotal>
       <cbc:TaxAmount currencyID="${currency}">${formatAmount(ivaTotal)}</cbc:TaxAmount>
@@ -789,13 +831,13 @@ ${subtotalsXml(ivaList, '      ')}
       <cbc:PriceAmount currencyID="${currency}">${amount}</cbc:PriceAmount>
       <cbc:BaseQuantity unitCode="NIU">1</cbc:BaseQuantity>
     </cac:Price>
-</cac:CreditNoteLine>
-</CreditNote>
+</cac:${dt.lineTag}>
+</${dt.root}>
 
   </informacionOrganismo>
   <informacionComfiar>
            <ruc>${escapeXml(invoiceData.supplierNit)}</ruc>
-           <codDoc>04</codDoc>
+           <codDoc>${dt.codDoc}</codDoc>
            <prefixPtoVenta>${escapeXml(prefix)}</prefixPtoVenta>
            <nroCbte>${escapeXml(number)}</nroCbte>
           <Receptores>
@@ -814,7 +856,7 @@ ${subtotalsXml(ivaList, '      ')}
  </Comprobantes>
 `;
 
-  return { xml, ncFullId };
+  return { xml, ncFullId, fileTag: dt.fileTag };
 }
 
 function extractCustomerEmail() {
@@ -909,6 +951,21 @@ uploadArea.addEventListener('drop', e => {
 
 $('nc_amount').addEventListener('input', updateSummary);
 
+function applyDocType() {
+  const dt = currentDocType();
+  document.querySelectorAll('.doc-abbr').forEach(el => el.textContent = dt.abbr);
+  document.querySelectorAll('.doc-name').forEach(el => el.textContent = dt.name);
+  // Swap the default prefix unless the user typed a custom one
+  const prefix = $('nc_prefix');
+  const p = prefix.value.trim();
+  if (!p || Object.values(DOC_TYPES).some(t => t.abbr === p)) prefix.value = dt.abbr;
+  $('btnGenerate').textContent = `Generar y descargar XML (${dt.abbr})`;
+  $('previewCard').classList.add('hidden');
+  updateSummary();
+}
+document.querySelectorAll('input[name="docType"]').forEach(r => r.addEventListener('change', applyDocType));
+applyDocType();
+
 $('btnPreview').addEventListener('click', () => {
   try {
     const { xml } = buildNC();
@@ -922,9 +979,9 @@ $('btnPreview').addEventListener('click', () => {
 
 $('btnGenerate').addEventListener('click', () => {
   try {
-    const { xml, ncFullId } = buildNC();
+    const { xml, ncFullId, fileTag } = buildNC();
     const date = ($('nc_date').value || '').replace(/-/g, '');
-    const filename = `${ncFullId}_DNC_${date}_${date}.xml`;
+    const filename = `${ncFullId}_${fileTag}_${date}_${date}.xml`;
     downloadXml(xml, filename);
     showAlert(`XML generado y descargado: ${filename}`, 'success');
   } catch (err) {
