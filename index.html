@@ -438,19 +438,25 @@ function parseInvoice(xmlString) {
   const parseError = doc.querySelector('parsererror');
   if (parseError) throw new Error('XML inválido: ' + parseError.textContent);
 
-  let invoice = doc.getElementsByTagName('Invoice')[0];
+  const findDoc = (d, localName) => d.getElementsByTagNameNS('*', localName)[0] || d.getElementsByTagName(localName)[0];
+  let invoice = findDoc(doc, 'Invoice');
   if (!invoice) {
-    // DIAN "AttachedDocument": the signed Invoice (with CUFE) travels as CDATA text inside a cbc:Description
-    for (const d of doc.getElementsByTagNameNS('*', 'Description')) {
-      if (!/<(\w+:)?Invoice[\s>]/.test(d.textContent)) continue;
-      const inner = parser.parseFromString(d.textContent.trim(), 'text/xml');
+    // The signed Invoice can travel as text inside another element: CDATA in a cbc:Description
+    // (DIAN AttachedDocument) or escaped inside <ComprobanteProcesado> (Comfiar output)
+    for (const d of doc.getElementsByTagName('*')) {
+      if (d.children.length || !/<(\w+:)?Invoice[\s>]/.test(d.textContent)) continue;
+      const inner = parser.parseFromString(d.textContent.trim().replace(/^﻿/, ''), 'text/xml');
       if (inner.querySelector('parsererror')) continue;
-      invoice = inner.getElementsByTagName('Invoice')[0];
+      invoice = findDoc(inner, 'Invoice');
       if (invoice) break;
     }
   }
-  invoice = invoice || doc.documentElement;
-  if (!invoice) throw new Error('No se encontró el elemento <Invoice>.');
+  if (!invoice) {
+    const isNote = /<(\w+:)?(CreditNote|DebitNote)[\s>]/.test(xmlString.replace(/&lt;/g, '<'));
+    throw new Error(isNote
+      ? 'Este XML es una Nota Crédito/Débito, no una factura. Carga el XML de la factura original.'
+      : 'No se encontró una factura electrónica (<Invoice>) en el XML.');
+  }
 
   // DIAN extensions
   const dianExt = invoice.getElementsByTagNameNS(NS.sts, 'DianExtensions')[0]
