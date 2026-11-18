@@ -146,6 +146,8 @@
   .tax-summary .sum-row { display: flex; justify-content: space-between; padding: 2px 0; }
   .tax-summary .sum-total { font-weight: 700; border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; }
   .tax-summary .sum-note { opacity: .7; font-size: 13px; }
+  .tax-summary .sum-note label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .tax-summary .sum-note.off { text-decoration: line-through; }
   .row-3 {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
@@ -353,6 +355,8 @@ const NS = {
 };
 
 let invoiceData = null;
+// Indices of invoice withholdings the user chose NOT to include (emitted with 0% / 0 amount)
+let excludedWh = new Set();
 
 // Per-document-type differences (taken from real Comfiar NC / ND samples)
 const DOC_TYPES = {
@@ -666,12 +670,16 @@ function validateRequired() {
 // for the full base, proportional (rounded to cents) otherwise.
 function computeTaxes(amountNum) {
   const full = Math.abs(amountNum - invoiceData.lineExtension) < 0.005;
-  const calcTax = st => ({ ...st, taxable: amountNum,
-    amount: full ? st.amount : Math.round(amountNum * parseFloat(st.percent)) / 100 });
-  let ivaList = (invoiceData.taxes || []).filter(t => t.schemeId === '01').map(calcTax);
+  const calcTax = (st, base) => ({ ...st, taxable: full ? st.taxable : base,
+    amount: full ? st.amount : Math.round(base * parseFloat(st.percent)) / 100 });
+  let ivaList = (invoiceData.taxes || []).filter(t => t.schemeId === '01').map(st => calcTax(st, amountNum));
   if (!ivaList.length) ivaList = [{ taxable: amountNum, amount: 0, percent: '0.00', schemeId: '01', schemeName: 'IVA' }];
-  const whList = (invoiceData.withholdings || []).map(calcTax);
   const ivaTotal = ivaList.reduce((a, t) => a + t.amount, 0);
+  // ReteIVA (scheme 05) is a % of the IVA, not of the base; ReteFuente (06) / ReteICA (07) use the base
+  const whBase = st => st.schemeId === '05' ? ivaTotal : amountNum;
+  const whList = (invoiceData.withholdings || []).map((st, i) => excludedWh.has(i)
+    ? { ...st, taxable: full ? st.taxable : whBase(st), amount: 0, percent: '0.00', excluded: true, idx: i }
+    : { ...calcTax(st, whBase(st)), idx: i });
   return { ivaList, whList, ivaTotal, inclusive: amountNum + ivaTotal };
 }
 
@@ -687,7 +695,11 @@ function updateSummary() {
     + row('Subtotal (base)', amountNum)
     + ivaList.map(t => row(`${escapeXml(t.schemeName)} ${escapeXml(t.percent)}%`, t.amount)).join('')
     + row(`Total ${abbr} (con IVA)`, inclusive, 'sum-total')
-    + whList.map(t => row(`Retención informativa: ${escapeXml(t.schemeName)} ${escapeXml(t.percent)}%`, t.amount, 'sum-note')).join('');
+    + whList.map(t => {
+      const pct = escapeXml(t.excluded ? invoiceData.withholdings[t.idx].percent : t.percent);
+      return `<div class="sum-row sum-note${t.excluded ? ' off' : ''}"><label><input type="checkbox" class="wh-toggle" data-idx="${t.idx}"${t.excluded ? '' : ' checked'}>`
+        + `Incluir retención informativa: ${escapeXml(t.schemeName)} ${pct}%</label><span>${fmt(t.amount)}</span></div>`;
+    }).join('');
   box.classList.remove('hidden');
 }
 
@@ -884,6 +896,7 @@ function loadFile(file) {
   reader.onload = e => {
     try {
       invoiceData = parseInvoice(e.target.result);
+      excludedWh = new Set();
       fillForm();
       $('formCard').classList.remove('hidden');
       $('fileInfo').textContent = `✓ Cargado: ${file.name} — Factura ${invoiceData.invoiceId}`;
@@ -956,6 +969,13 @@ uploadArea.addEventListener('drop', e => {
 });
 
 $('nc_amount').addEventListener('input', updateSummary);
+$('taxSummary').addEventListener('change', e => {
+  if (!e.target.classList.contains('wh-toggle')) return;
+  const i = Number(e.target.dataset.idx);
+  if (e.target.checked) excludedWh.delete(i); else excludedWh.add(i);
+  updateSummary();
+  $('previewCard').classList.add('hidden');
+});
 
 function applyDocType() {
   const dt = currentDocType();
